@@ -1,0 +1,59 @@
+//подключение библиотек
+#include "cuda_runtime.h"
+#include "device_launch_parameters.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include<curand.h>
+#include<curand_kernel.h>
+#define N 100
+
+
+unsigned long long int atomicAdd(unsigned long long	int* addr, unsigned long long int value);
+
+__device__ bool isInCircle(double* x, double* y)
+{
+	return (*x) * (*x) + (*y) * (*y) <= 1;
+}
+// ядро
+__global__ void pi(unsigned long long int* p_a) {
+
+	double x = double(blockIdx.x) / N;
+	double y = double(threadIdx.x) / N;
+	isInCircle(&x, &y) ? atomicAdd(p_a, 1) : 0;
+}
+//главная функция
+int main()
+{
+
+	// переменные на CPU
+	unsigned long long int a;
+
+	// переменные на GPU
+	unsigned long long int* dev_a;
+	int size = sizeof(unsigned long long int); //размерность
+	// выделяем память на GPU
+	cudaMalloc((void**)&dev_a, size);
+
+
+	// инициализация переменных
+	a = 0;
+
+
+	// копирование информации с CPU на GPU
+	cudaMemcpy(dev_a, &a, size, cudaMemcpyHostToDevice);
+
+
+	// вызов ядра
+	pi << < N, N>> > (dev_a);
+
+	// копирование результата работы ядра с GPU на CPU
+	cudaMemcpy(&a, dev_a, size, cudaMemcpyDeviceToHost);
+	// вывод информации
+	printf("Pi = %f\n", (double)4 * a / N / N);
+	// очищение памяти на GPU
+	cudaFree(dev_a);
+
+
+
+	return 0;
+}
