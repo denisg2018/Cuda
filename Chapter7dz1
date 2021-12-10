@@ -4,6 +4,9 @@
 #include <stdio.h>
 
 
+// размер блока 
+#define BLOCK_SIZE 16
+//количество элементов
 #define N 100
 
 //функция
@@ -15,9 +18,9 @@ __device__ double f(double* x) {
 // ядро
 __global__ void integralByCenter(double* c, const double* h, const double* a)
 {
-    __shared__ double csh[32];
+    __shared__ double csh[BLOCK_SIZE];
 
-    double x1 = *a + (double)(blockIdx.x * 32 + threadIdx.x) * *h;
+    double x1 = *a + (double)(blockIdx.x * BLOCK_SIZE + threadIdx.x) * *h;
 
     double x2 = x1 + *h / 2;
     csh[threadIdx.x] = f(&x2);
@@ -25,7 +28,7 @@ __global__ void integralByCenter(double* c, const double* h, const double* a)
 
     if (threadIdx.x == 0) {
 
-        for (int i = 0; i < 32 && blockIdx.x * 32 + i < N; ++i) {
+        for (int i = 0; i < BLOCK_SIZE && blockIdx.x * BLOCK_SIZE + i < N; ++i) {
             c[blockIdx.x] += csh[i];
         }
     }
@@ -34,9 +37,9 @@ __global__ void integralByCenter(double* c, const double* h, const double* a)
 
 __global__ void integralByTrap(double* c, const double* h, const double* a)
 {
-    __shared__ double csh[32];
+    __shared__ double csh[BLOCK_SIZE];
 
-    double x1 = *a + (double)(blockIdx.x * 32 + threadIdx.x) * *h;
+    double x1 = *a + (double)(blockIdx.x * BLOCK_SIZE + threadIdx.x) * *h;
     double x2 = x1 + *h;
     csh[threadIdx.x] = (f(&x1) + f(&x2)) / 2;
 
@@ -45,7 +48,7 @@ __global__ void integralByTrap(double* c, const double* h, const double* a)
 
     if (threadIdx.x == 0) {
 
-        for (int i = 0; i < 32 && blockIdx.x * 32 + i < N; ++i) {
+        for (int i = 0; i < BLOCK_SIZE && blockIdx.x * BLOCK_SIZE + i < N; ++i) {
             c[blockIdx.x] += csh[i];
         }
     }
@@ -54,9 +57,9 @@ __global__ void integralByTrap(double* c, const double* h, const double* a)
 
 __global__ void integralBySimps(double* c, const double* h, const double* a)
 {
-    __shared__ double csh[32];
+    __shared__ double csh[BLOCK_SIZE];
 
-    double x1 = *a + (double)(blockIdx.x * 32 + threadIdx.x) * *h;
+    double x1 = *a + (double)(blockIdx.x * BLOCK_SIZE + threadIdx.x) * *h;
     double x2 = x1 + *h;
     double x_center = (x2 + x1) / 2;
     csh[threadIdx.x] = (f(&x1) + f(&x2) + 4 * f(&x_center));
@@ -65,7 +68,7 @@ __global__ void integralBySimps(double* c, const double* h, const double* a)
 
     if (threadIdx.x == 0) {
 
-        for (int i = 0; i < 32 && blockIdx.x * 32 + i < N; ++i) {
+        for (int i = 0; i < BLOCK_SIZE && blockIdx.x * BLOCK_SIZE + i < N; ++i) {
             c[blockIdx.x] += csh[i];
         }
     }
@@ -75,15 +78,15 @@ __global__ void integralBySimps(double* c, const double* h, const double* a)
 int main()
 {
     // переменные на CPU
-    const int blockSize = N / 32 + 1;
+    const int gridSize = N / BLOCK_SIZE + 1;
     double a = 3;
     double b = 6;
     double h = (b - a) / N;
-    double c_center[blockSize];
-    double c_trap[blockSize];
-    double c_Simps[blockSize];
+    double c_center[gridSize];
+    double c_trap[gridSize];
+    double c_Simps[gridSize];
     // инициализация переменных
-    for (int i = 0; i < blockSize; ++i) {
+    for (int i = 0; i < gridSize; ++i) {
         c_center[i] = 0;
         c_trap[i] = 0;
         c_Simps[i] = 0;
@@ -95,7 +98,7 @@ int main()
     double* dev_trap = 0;
     double* dev_Simps = 0;
     //размерность
-    int size1 = blockSize * sizeof(double);
+    int size1 = gridSize * sizeof(double);
     int size2 = sizeof(double);
     // выделяем память на GPU
     cudaMalloc((void**)&dev_center, size1);
@@ -113,9 +116,9 @@ int main()
     cudaMemcpy(dev_Simps, c_Simps, size1, cudaMemcpyHostToDevice);
 
     // вызов ядра
-    integralByCenter << <blockSize, 32 >> > (dev_center, dev_h, dev_a);
-    integralByTrap << <blockSize, 32 >> > (dev_trap, dev_h, dev_a);
-    integralBySimps << <blockSize, 32 >> > (dev_Simps, dev_h, dev_a);
+    integralByCenter << <gridSize, BLOCK_SIZE >> > (dev_center, dev_h, dev_a);
+    integralByTrap << <gridSize, BLOCK_SIZE >> > (dev_trap, dev_h, dev_a);
+    integralBySimps << <gridSize, BLOCK_SIZE >> > (dev_Simps, dev_h, dev_a);
 
 
     // копирование результата работы ядра с GPU на CPU
@@ -126,14 +129,14 @@ int main()
 
     // вывод информации
     double sum = 0;
-    for (int i = 0; i < blockSize; ++i) {
+    for (int i = 0; i < gridSize; ++i) {
         sum += c_center[i];
     }
     sum /= N / (b - a);
     printf("integralByCenter = %f\n", sum);
 
     sum = 0;
-    for (int i = 0; i < blockSize; ++i) {
+    for (int i = 0; i < gridSize; ++i) {
         sum += c_trap[i];
     }
     sum /= N / (b - a);
@@ -141,7 +144,7 @@ int main()
     printf("integralByTrap = %f\n", sum);
 
     sum = 0;
-    for (int i = 0; i < blockSize; ++i) {
+    for (int i = 0; i < gridSize; ++i) {
         sum += c_Simps[i];
     }
     sum = (b - a) * sum / 6 / N;
