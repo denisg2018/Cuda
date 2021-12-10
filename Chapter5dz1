@@ -1,0 +1,99 @@
+#include "cuda_runtime.h"
+#include "device_launch_parameters.h"
+#include "cmath"
+#include <stdio.h>
+
+#define N 10 
+
+// Ядро
+__global__ void ScalF(float* a, float* b, float* c)
+{
+	int i = threadIdx.x;
+	c[i] = __fmul_rn(a[i], b[i]);
+}
+
+__global__ void ScalD(double* a, double* b, double* c)
+{
+	int i = threadIdx.x;
+	c[i] = __dmul_rn(a[i], b[i]);
+}
+
+int main()
+{
+
+	cudaEvent_t start_f, stop_f, start_d, stop_d;
+	cudaEventCreate(&start_f);
+	cudaEventCreate(&stop_f);
+	cudaEventCreate(&start_d);
+	cudaEventCreate(&stop_d);
+
+	// переменные на CPU
+	float af[N], bf[N], cf[N], sumf;
+	double ad[N], bd[N], cd[N], sumd;
+	// переменные на GPU
+	float* dev_af, * dev_bf, * dev_cf;
+	double* dev_ad, * dev_bd, * dev_cd;
+	//размерность
+	int sizef = N * sizeof(float);
+	int sized = N * sizeof(double);
+	// инициализация переменных
+	for (int i = 0; i < N; i++)
+	{
+		ad[i] = i + 0.1;
+		bd[i] = N - i - 0.1;
+		af[i] = i + 0.1;
+		bf[i] = N - i - 0.1;
+	}
+	sumf = 0;
+	sumd = 0;
+	// выделяем память на GPU
+	cudaMalloc((void**)&dev_af, sizef);
+	cudaMalloc((void**)&dev_bf, sizef);
+	cudaMalloc((void**)&dev_cf, sizef);
+	cudaMalloc((void**)&dev_ad, sized);
+	cudaMalloc((void**)&dev_bd, sized);
+	cudaMalloc((void**)&dev_cd, sized);
+	// копирование информации с CPU на GPU
+	cudaMemcpy(dev_af, af, sizef, cudaMemcpyHostToDevice);
+	cudaMemcpy(dev_bf, bf, sizef, cudaMemcpyHostToDevice);
+	cudaMemcpy(dev_ad, ad, sized, cudaMemcpyHostToDevice);
+	cudaMemcpy(dev_bd, bd, sized, cudaMemcpyHostToDevice);
+	// вызов ядра и замер времени
+	cudaEventRecord(start_f, 0);
+	ScalF << <1, N >> > (dev_af, dev_bf, dev_cf);
+	cudaEventRecord(stop_f, 0);
+	cudaEventSynchronize(stop_f);
+
+	float kernelTime_f;
+	cudaEventElapsedTime(&kernelTime_f, start_f, stop_f);
+	printf("Float kernel time = %f ms\n", kernelTime_f);
+
+	cudaEventRecord(start_d, 0);
+	ScalD << <1, N >> > (dev_ad, dev_bd, dev_cd);
+	cudaEventRecord(stop_d, 0); 
+	cudaEventSynchronize(stop_d);
+
+	float kernelTime_d;
+	cudaEventElapsedTime(&kernelTime_d, start_d, stop_d);
+	printf("Double kernel time = %f ms\n", kernelTime_d);
+
+	// копирование результата работы ядра с GPU на CPU
+	cudaMemcpy(cf, dev_cf, sizef, cudaMemcpyDeviceToHost);
+	cudaMemcpy(cd, dev_cd, sized, cudaMemcpyDeviceToHost);
+	for (int i = 0; i < N; i++)
+	{
+		sumf += cf[i];
+		sumd += cd[i];
+	}
+
+	//вывод результата
+	printf("scalarnoe proizvedenie float = %f\n", sumf);
+	printf("scalarnoe proizvedenie double = %f\n", sumd);
+	cudaFree(dev_af);
+	cudaFree(dev_bf);
+	cudaFree(dev_cf);
+	cudaFree(dev_ad);
+	cudaFree(dev_bd);
+	cudaFree(dev_cd);
+	return 0;
+}
