@@ -1,0 +1,157 @@
+#include "cuda_runtime.h"
+#include "device_launch_parameters.h"
+
+#include <stdio.h>
+
+
+#define N 100
+
+//функция
+__device__ double f(double* x) {
+    return *x;
+}
+
+
+// ядро
+__global__ void integralByCenter(double* c, const double* h, const double* a)
+{
+    __shared__ double csh[32];
+
+    double x1 = *a + (double)(blockIdx.x * 32 + threadIdx.x) * *h;
+
+    double x2 = x1 + *h / 2;
+    csh[threadIdx.x] = f(&x2);
+    __syncthreads();
+
+    if (threadIdx.x == 0) {
+
+        for (int i = 0; i < 32 && blockIdx.x * 32 + i < N; ++i) {
+            c[blockIdx.x] += csh[i];
+        }
+    }
+
+}
+
+__global__ void integralByTrap(double* c, const double* h, const double* a)
+{
+    __shared__ double csh[32];
+
+    double x1 = *a + (double)(blockIdx.x * 32 + threadIdx.x) * *h;
+    double x2 = x1 + *h;
+    csh[threadIdx.x] = (f(&x1) + f(&x2)) / 2;
+
+    __syncthreads();
+
+
+    if (threadIdx.x == 0) {
+
+        for (int i = 0; i < 32 && blockIdx.x * 32 + i < N; ++i) {
+            c[blockIdx.x] += csh[i];
+        }
+    }
+
+}
+
+__global__ void integralBySimps(double* c, const double* h, const double* a)
+{
+    __shared__ double csh[32];
+
+    double x1 = *a + (double)(blockIdx.x * 32 + threadIdx.x) * *h;
+    double x2 = x1 + *h;
+    double x_center = (x2 + x1) / 2;
+    csh[threadIdx.x] = (f(&x1) + f(&x2) + 4 * f(&x_center));
+
+    __syncthreads();
+
+    if (threadIdx.x == 0) {
+
+        for (int i = 0; i < 32 && blockIdx.x * 32 + i < N; ++i) {
+            c[blockIdx.x] += csh[i];
+        }
+    }
+
+}
+
+int main()
+{
+    // переменные на CPU
+    const int blockSize = N / 32 + 1;
+    double a = 3;
+    double b = 6;
+    double h = (b - a) / N;
+    double c_center[blockSize];
+    double c_trap[blockSize];
+    double c_Simps[blockSize];
+    // инициализация переменных
+    for (int i = 0; i < blockSize; ++i) {
+        c_center[i] = 0;
+        c_trap[i] = 0;
+        c_Simps[i] = 0;
+    }
+    // переменные на GPU
+    double* dev_a = 0;
+    double* dev_h = 0;
+    double* dev_center = 0;
+    double* dev_trap = 0;
+    double* dev_Simps = 0;
+    //размерность
+    int size1 = blockSize * sizeof(double);
+    int size2 = sizeof(double);
+    // выделяем память на GPU
+    cudaMalloc((void**)&dev_center, size1);
+    cudaMalloc((void**)&dev_trap, size1);
+    cudaMalloc((void**)&dev_Simps, size1);
+    cudaMalloc((void**)&dev_a, size2);
+    cudaMalloc((void**)&dev_h, size2);
+
+
+    // копирование информации с CPU на GPU
+    cudaMemcpy(dev_a, &a, size2, cudaMemcpyHostToDevice);
+    cudaMemcpy(dev_h, &h, size2, cudaMemcpyHostToDevice);
+    cudaMemcpy(dev_center, c_center, size1, cudaMemcpyHostToDevice);
+    cudaMemcpy(dev_trap, c_trap, size1, cudaMemcpyHostToDevice);
+    cudaMemcpy(dev_Simps, c_Simps, size1, cudaMemcpyHostToDevice);
+
+    // вызов ядра
+    integralByCenter << <blockSize, 32 >> > (dev_center, dev_h, dev_a);
+    integralByTrap << <blockSize, 32 >> > (dev_trap, dev_h, dev_a);
+    integralBySimps << <blockSize, 32 >> > (dev_Simps, dev_h, dev_a);
+
+
+    // копирование результата работы ядра с GPU на CPU
+
+    cudaMemcpy(&c_center, dev_center, size1, cudaMemcpyDeviceToHost);
+    cudaMemcpy(&c_trap, dev_trap, size1, cudaMemcpyDeviceToHost);
+    cudaMemcpy(&c_Simps, dev_Simps, size1, cudaMemcpyDeviceToHost);
+
+    // вывод информации
+    double sum = 0;
+    for (int i = 0; i < blockSize; ++i) {
+        sum += c_center[i];
+    }
+    sum /= N / (b - a);
+    printf("integralByCenter = %f\n", sum);
+
+    sum = 0;
+    for (int i = 0; i < blockSize; ++i) {
+        sum += c_trap[i];
+    }
+    sum /= N / (b - a);
+
+    printf("integralByTrap = %f\n", sum);
+
+    sum = 0;
+    for (int i = 0; i < blockSize; ++i) {
+        sum += c_Simps[i];
+    }
+    sum = (b - a) * sum / 6 / N;
+    printf("integralBySimps = %f\n", sum);
+
+    // очищение памяти на GPU
+    cudaFree(dev_center);
+    cudaFree(dev_trap);
+    cudaFree(dev_Simps);
+    cudaFree(dev_a);
+    cudaFree(dev_h);
+    return 0;
+}
