@@ -1,0 +1,67 @@
+//подключение библиотек
+#include "cuda_runtime.h"
+#include "device_launch_parameters.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include<curand.h>
+#include<curand_kernel.h>
+
+
+unsigned long long int atomicAdd(unsigned long long	int* addr, unsigned long long int value);
+
+//Вычисление случаного числа
+__device__ double r(int seed) {
+	curandState localState;
+	curand_init(seed, 0, 0, &localState);
+	float RANDOM = curand_uniform(&localState);
+	return RANDOM;
+}
+
+
+
+// ядро
+__global__ void pi(unsigned long long int* a, unsigned long long int* b) {
+	double rx = r(threadIdx.x + blockIdx.x * blockDim.x), ry = r(threadIdx.x - blockIdx.x * blockDim.x);
+	if (rx * rx + ry * ry <= 1)
+		atomicAdd(a, 1);
+	atomicAdd(b, 1);
+
+}
+//главная функция
+int main()
+{
+
+	// переменные на CPU
+	unsigned long long int a, b;
+
+	// переменные на GPU
+	unsigned long long int* dev_a, * dev_b;
+	int size = sizeof(unsigned long long int); //размерность
+	// выделяем память на GPU
+	cudaMalloc((void**)&dev_a, size);
+	cudaMalloc((void**)&dev_b, size);
+
+	// инициализация переменных
+	a = 0;
+	b = 0;
+
+	// копирование информации с CPU на GPU
+	cudaMemcpy(dev_a, &a, size, cudaMemcpyHostToDevice); 
+	cudaMemcpy(dev_b, &b, size, cudaMemcpyHostToDevice);
+
+
+	// вызов ядра
+	pi << < 1000, 100 >> > (dev_a, dev_b);
+
+	// копирование результата работы ядра с GPU на CPU
+	cudaMemcpy(&a, dev_a, size, cudaMemcpyDeviceToHost);
+	cudaMemcpy(&b, dev_b, size, cudaMemcpyDeviceToHost);
+	// вывод информации
+	printf("Pi = %f\n", (double)4 * a / b);
+	// очищение памяти на GPU
+	cudaFree(dev_a);
+	cudaFree(dev_b);
+
+
+	return 0;
+}
