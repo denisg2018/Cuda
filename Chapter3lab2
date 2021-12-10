@@ -1,0 +1,64 @@
+//подключение библиотек
+#include "cuda_runtime.h"
+#include "device_launch_parameters.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include<curand.h>
+#include<curand_kernel.h>
+#include<cmath>
+
+
+#define N 100
+// ядро
+__global__ void pi(double* a)
+{
+	int i = threadIdx.x;
+	a[i] = sqrtf(1.0 - double(i) * double(i) / double(N) / double(N));
+}
+//главная функция
+int main()
+{
+
+	// переменные на CPU
+	double a[N], b;
+
+	// переменные на GPU
+	double* dev_a;
+	int size = N * sizeof(double); //размерность
+	// выделяем память на GPU
+	cudaMalloc((void**)&dev_a, size);
+
+
+	// инициализация переменных
+
+	b = 0;
+
+	// копирование информации с CPU на GPU
+	cudaMemcpy(dev_a, &a, size, cudaMemcpyHostToDevice);
+
+
+
+	// вызов ядра
+	pi << < 1, N>> > (dev_a);
+
+	//проверка на ошибку
+	cudaError_t err = cudaGetLastError();
+	if (err != cudaSuccess)
+		printf("%s ", cudaGetErrorString(err));
+
+	// копирование результата работы ядра с GPU на CPU
+	cudaMemcpy(&a, dev_a, size, cudaMemcpyDeviceToHost);
+
+	for (int i = 0; i < N; i++) {
+		b += a[i];
+	}
+
+	// вывод информации
+	printf("Pi = %f\n", (double)4 * b/N);
+	// очищение памяти на GPU
+	cudaFree(dev_a);
+
+
+
+	return 0;
+}
