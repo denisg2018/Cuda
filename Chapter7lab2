@@ -1,0 +1,89 @@
+#include "cuda_runtime.h"
+#include "device_launch_parameters.h"
+
+#include <stdio.h>
+
+
+#define N 100
+
+//функция
+__device__ double f(double* x) {
+    return *x ;
+}
+
+
+// ядро
+__global__ void integralByCenter(double* c, const double* h, const double* a)
+{
+    __shared__ double csh[32];
+
+    double x1 = *a + (double)(blockIdx.x * 32 + threadIdx.x) * *h;
+
+    double x2 = x1 + *h / 2;
+    csh[threadIdx.x] = f(&x2);
+    __syncthreads();
+
+    if (threadIdx.x == 0) {
+
+        for (int i = 0; i < 32 && blockIdx.x * 32 + i < N; ++i) {
+            c[blockIdx.x] += csh[i];
+        }
+    }
+
+}
+
+
+int main()
+{
+    // переменные на CPU
+    const int blockSize = N / 32 + 1;
+    double a = 3;
+    double b = 6;
+    double h = (b - a) / N;
+    double c_center[blockSize];
+
+    // инициализация переменных
+    for (int i = 0; i < blockSize; ++i) {
+        c_center[i] = 0;
+    }
+    // переменные на GPU
+    double* dev_a = 0;
+    double* dev_h = 0;
+    double* dev_center = 0;
+    //размерность
+    int size1 = blockSize * sizeof(double);
+    int size2 = sizeof(double);
+    // выделяем память на GPU
+    cudaMalloc((void**)&dev_center, size1);
+    cudaMalloc((void**)&dev_a, size2);
+    cudaMalloc((void**)&dev_h, size2);
+    
+
+   // копирование информации с CPU на GPU
+    cudaMemcpy(dev_a, &a, size2 , cudaMemcpyHostToDevice);
+   cudaMemcpy(dev_h, &h, size2, cudaMemcpyHostToDevice); 
+    cudaMemcpy(dev_center, c_center, size1, cudaMemcpyHostToDevice);
+
+    // вызов ядра
+    integralByCenter << <blockSize, 32 >> > (dev_center, dev_h, dev_a);
+
+
+
+    // копирование результата работы ядра с GPU на CPU
+
+    cudaMemcpy(&c_center, dev_center, size1, cudaMemcpyDeviceToHost);
+    
+    // вывод информации
+    double sum = 0;
+    for (int i = 0; i < blockSize; ++i) {
+        sum += c_center[i];
+    }
+    sum /= N / (b - a);
+    printf("integralByCenter = %f\n", sum);
+
+    // очищение памяти на GPU
+    cudaFree(dev_center);
+    cudaFree(dev_a);
+    cudaFree(dev_h);
+    return 0;
+}
