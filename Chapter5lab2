@@ -1,0 +1,55 @@
+#include "cuda_runtime.h"
+#include "device_launch_parameters.h"
+#include "cmath"
+#include <stdio.h>
+
+#define N 10 
+
+// Ядро
+__global__ void Scal(float* a, float* b, float* c)
+{
+	int i = threadIdx.x; 
+	c[i] = __fmul_rn(a[i], b[i]);
+}
+
+int main()
+{
+	// переменные на CPU
+	float a[N], b[N], c[N], sum;
+	// переменные на GPU
+	float* dev_a, * dev_b, * dev_c;
+	int size = N * sizeof(float); //размерность
+	// инициализация переменных
+	for (int i = 0; i < N; i++)
+	{
+		a[i] = i;
+		b[i] = N - i;
+	}
+	sum = 0;
+
+	// выделяем память на GPU
+	cudaMalloc((void**)&dev_a, size);
+	cudaMalloc((void**)&dev_b, size);
+	cudaMalloc((void**)&dev_c, size);
+
+	// копирование информации с CPU на GPU
+	cudaMemcpy(dev_a, a, size, cudaMemcpyHostToDevice);
+	cudaMemcpy(dev_b, b, size, cudaMemcpyHostToDevice);
+	// вызов ядра
+	Scal << <1, N >> > (dev_a, dev_b, dev_c);
+	// копирование результата работы ядра с GPU на CPU
+	cudaMemcpy(c, dev_c, size, cudaMemcpyDeviceToHost);
+
+	for (int i = 0; i < N; i++)
+	{
+		sum += c[i];
+	}
+
+	//вывод результата
+	printf("scalarnoe proizvedenie = %f\n", sum);
+
+	cudaFree(dev_a);
+	cudaFree(dev_b);
+	cudaFree(dev_c);
+	return 0;
+}
